@@ -1,0 +1,14 @@
+{
+  "name": "IngatlanScan",
+  "short_name": "IngatlanScan",
+  "description": "Digitális ingatlanfelmérés mobilon és weben.",
+  "lang": "hu",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f5f3ec",
+  "theme_color": "#174c39",
+  "icons": [
+    {"src":"ingatlanscan-icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}
+  ]
+}
