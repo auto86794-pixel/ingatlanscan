@@ -52,3 +52,7 @@ Vizuális finomítás a stabil 05-ös funkcionális alapra. Az adatmodell és a 
 
 ## IngatlanScan 07
 Offline automatikus helyszíni kivonat az összegzésben, egygombos másolással és PDF/nyomtatási megjelenítéssel. A 06 adatmodellje változatlan.
+
+
+## IngatlanScan 08
+Több helyi felmérés kezelése: Felmérések kezdőoldal, újranyitás, készültség, fotószám, utolsó módosítás és biztonságos törlés. A 07 adatmodellje változatlan; a korábbi helyi piszkozat automatikusan bekerül a listába.

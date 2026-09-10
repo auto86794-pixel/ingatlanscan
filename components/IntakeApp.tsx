@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createIntake, createRoom, type Intake, type Room } from "@/lib/model";
-import { clearDraft, readDraft, writeDraft } from "@/lib/offline";
+import { deleteDraft, readDraft, readIntakes, selectDraft, writeDraft } from "@/lib/offline";
 import { createHomeFlowPayload } from "@/lib/homeflow";
 import { deleteIntakePhotos, deletePhoto, getPhotos, resizeImage, savePhoto } from "@/lib/photos";
 
@@ -53,14 +53,28 @@ export default function IntakeApp() {
   const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({});
   const [photoBusyRoom, setPhotoBusyRoom] = useState<string | null>(null);
   const [summaryCopied, setSummaryCopied] = useState(false);
+  const [screen, setScreen] = useState<"list" | "form">("list");
+  const [intakes, setIntakes] = useState<Intake[]>([]);
+  const [loaded, setLoaded] = useState(false);
 
-  useEffect(() => setForm(readDraft() || createIntake()), []);
   useEffect(() => {
-    if (!form) return;
+    const items = readIntakes();
+    const current = readDraft();
+    setIntakes(items);
+    setForm(current || items[0] || null);
+    setLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (!form || screen !== "form") return;
     setSaveState("Mentés…");
-    const timer = setTimeout(() => { writeDraft(form); setSaveState("Mentve"); }, 300);
+    const timer = setTimeout(() => {
+      writeDraft(form);
+      setIntakes(readIntakes());
+      setSaveState("Mentve");
+    }, 300);
     return () => clearTimeout(timer);
-  }, [form]);
+  }, [form, screen]);
 
   const allPhotoIds = useMemo(() => form?.rooms.flatMap(room => room.photoIds) || [], [form]);
   useEffect(() => {
@@ -108,6 +122,65 @@ export default function IntakeApp() {
     ];
     return lines.filter(Boolean).join("\n");
   }, [form]);
+
+  const intakeProgress = (item: Intake) => {
+    const values = [item.property.address, item.property.type, item.property.city, item.property.floorArea, item.owner.name, item.owner.phone, item.technical.heating, item.technical.condition, item.sale.expectedPriceM, item.sale.priority, item.rooms.length ? "rooms" : "", item.notes];
+    return Math.round(values.filter(Boolean).length / values.length * 100);
+  };
+  const intakePhotoCount = (item: Intake) => item.rooms.reduce((sum, room) => sum + room.photoIds.length, 0);
+  const formatUpdated = (iso: string) => {
+    const date = new Date(iso);
+    return Number.isNaN(date.getTime()) ? "" : date.toLocaleString("hu-HU", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+  };
+  const openIntake = (item: Intake) => {
+    selectDraft(item);
+    setForm(item);
+    setStep(0);
+    setErrors([]);
+    setScreen("form");
+  };
+  const startNewIntake = () => {
+    const next = createIntake();
+    writeDraft(next);
+    setIntakes(readIntakes());
+    setForm(next);
+    setStep(0);
+    setErrors([]);
+    setScreen("form");
+  };
+  const removeSavedIntake = async (item: Intake) => {
+    if (!window.confirm(`Törlöd ezt a felmérést?\n\n${item.property.address || "Cím nélküli ingatlan"}\n\nA hozzá tartozó helyi fotók is törlődnek.`)) return;
+    await deleteIntakePhotos(item.id);
+    deleteDraft(item.id);
+    const nextItems = readIntakes();
+    setIntakes(nextItems);
+    if (form?.id === item.id) setForm(nextItems[0] || null);
+  };
+
+  if (!loaded) return <main className="loading">IngatlanScan betöltése…</main>;
+
+  if (screen === "list") {
+    return <div className="app intake-library">
+      <header className="header library-header"><div className="header-main"><div className="brand"><img className="brand-logo" src="/icon.svg" alt="" /><div><h1>Ingatlan<span>Scan</span></h1><p>Érték a részletekben.</p></div></div><button className="new-btn library-new" onClick={startNewIntake}>+ Új felmérés</button></div></header>
+      <main className="library-content">
+        <section className="library-hero"><div><span className="eyebrow">Saját felmérések</span><h2>Felmérések</h2><p>Folytasd a korábbi adatfelvételt, vagy indíts új helyszíni felmérést.</p></div><div className="library-count"><strong>{intakes.length}</strong><span>mentett felmérés</span></div></section>
+        {intakes.length === 0 ? <section className="library-empty"><img src="/icon.svg" alt="" /><h3>Még nincs mentett felmérés</h3><p>Az első adatlap indításához nyomd meg az Új felmérés gombot.</p><button className="btn export" onClick={startNewIntake}>+ Új felmérés indítása</button></section> :
+        <section className="intake-list">{intakes.map(item => {
+          const progress = intakeProgress(item);
+          const photos = intakePhotoCount(item);
+          return <article className="intake-card" key={item.id}>
+            <button type="button" className="intake-open" onClick={() => openIntake(item)}>
+              <div className="intake-card-top"><div><span className="intake-type">{item.property.type || "Ingatlanfelmérés"}</span><h3>{item.property.address || "Cím nélküli ingatlan"}</h3><p>{[item.property.city, item.property.district].filter(Boolean).join(" · ") || "Helyszín még nincs megadva"}</p></div><span className="intake-chevron">›</span></div>
+              <div className="intake-meta"><span>{item.property.floorArea ? `${item.property.floorArea} m²` : "– m²"}</span><span>{item.rooms.length} helyiség</span><span>{photos} fotó</span><span>{item.sale.expectedPriceM ? `${item.sale.expectedPriceM} M Ft` : "ár nincs"}</span></div>
+              <div className="intake-progress"><div><span>Készültség</span><strong>{progress}%</strong></div><div className="track"><div className="bar" style={{width:`${progress}%`}} /></div></div>
+              <small>Utolsó módosítás: {formatUpdated(item.updatedAt)}</small>
+            </button>
+            <button type="button" className="intake-delete" onClick={() => removeSavedIntake(item)}>Törlés</button>
+          </article>;
+        })}</section>}
+      </main>
+    </div>;
+  }
 
   if (!form) return <main className="loading">IngatlanScan betöltése…</main>;
 
@@ -178,7 +251,10 @@ export default function IntakeApp() {
   };
   const removePhoto = async (room: Room, id: string) => { await deletePhoto(id); patchRoom(room.id, { photoIds: room.photoIds.filter(photoId => photoId !== id) }); };
   const download = () => { const blob = new Blob([JSON.stringify(createHomeFlowPayload({ ...form, status: "ready" }), null, 2)], { type: "application/json" }); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `ingatlanscan-homeflow-${form.id}.json`; a.click(); URL.revokeObjectURL(a.href); };
-  const newIntake = async () => { if (!window.confirm("Biztosan új felmérést kezdesz? A jelenlegi helyi piszkozat és a hozzá tartozó fotók törlődnek.")) return; await deleteIntakePhotos(form.id); clearDraft(); setForm(createIntake()); setStep(0); setErrors([]); };
+  const newIntake = () => {
+    if (!window.confirm("Új felmérést indítasz? A jelenlegi felmérés mentve marad a Felmérések között.")) return;
+    startNewIntake();
+  };
   const summaryRow = (label: string, value: string | undefined) => value ? <div className="summary-row"><span>{label}</span><strong>{value}</strong></div> : null;
   const copyAutoSummary = async () => {
     try {
@@ -191,7 +267,7 @@ export default function IntakeApp() {
   };
 
   return <div className="app">
-    <header className="header"><div className="header-main"><div className="brand"><img className="brand-logo" src="/icon.svg" alt="" /><div><h1>Ingatlan<span>Scan</span></h1><p>Érték a részletekben.</p></div></div><div className="header-tools"><span className="save">{saveState} · {done}% kész</span><button className="new-btn" onClick={newIntake}>+ Új felmérés</button></div></div><div className="progress-box"><div className="progress-label"><span>{steps[step]}</span><span>{step + 1}/{steps.length}</span></div><div className="track"><div className="bar" style={{ width: `${(step + 1) / steps.length * 100}%` }} /></div></div></header>
+    <header className="header"><div className="header-main"><div className="brand"><img className="brand-logo" src="/icon.svg" alt="" /><div><h1>Ingatlan<span>Scan</span></h1><p>Érték a részletekben.</p></div></div><div className="header-tools"><span className="save">{saveState} · {done}% kész</span><button className="library-btn" onClick={() => { setIntakes(readIntakes()); setScreen("list"); }}>Felmérések</button><button className="new-btn" onClick={newIntake}>+ Új felmérés</button></div></div><div className="progress-box"><div className="progress-label"><span>{steps[step]}</span><span>{step + 1}/{steps.length}</span></div><div className="track"><div className="bar" style={{ width: `${(step + 1) / steps.length * 100}%` }} /></div></div></header>
 
     <main className="content"><section className="card screen-card"><div className="card-head"><div className="eyebrow">{step + 1}. lépés</div><h2>{steps[step]}</h2><p>{step === 4 ? "Add hozzá a helyiségeket, rögzítsd a fő jellemzőket és készíts fotókat közvetlenül telefonról." : step === 5 ? "Jelöld meg, mely dokumentumok és helyszíni tételek állnak már rendelkezésre." : step === 7 ? "Ellenőrizd az adatokat, add meg a fő értékesítési előnyöket, majd készíthetsz PDF-et." : "A mezők automatikusan mentődnek ezen az eszközön."}</p></div>
       {errors.length > 0 && <div className="error-box"><strong>Még szükséges:</strong> {errors.join(" · ")}</div>}
