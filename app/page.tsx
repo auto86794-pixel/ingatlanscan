@@ -1,2 +1,6 @@
 import IntakeApp from "@/components/IntakeApp";
-export default function Page(){return <IntakeApp/>}
+import WelcomeCover from "@/components/WelcomeCover";
+
+export default function Page(){
+  return <WelcomeCover><IntakeApp/></WelcomeCover>;
+}
