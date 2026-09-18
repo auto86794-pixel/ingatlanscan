@@ -19,7 +19,7 @@ function isAlreadyStored(error: { message?: string; statusCode?: string | number
 }
 
 async function runSync(intake: Intake): Promise<SyncResult> {
-  const supabase = getSupabaseClient();
+  const supabase = await getSupabaseClient();
   if (!supabase) {
     return { uploaded: 0, skipped: 0, failed: 0, reason: "A Supabase környezeti változók nincsenek beállítva." };
   }

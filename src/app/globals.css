@@ -1,0 +1,30 @@
+@import "tailwindcss";
+
+html,
+body {
+  color: #000000;
+  background: #f1f5f9;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+input,
+textarea,
+select,
+button {
+  font: inherit;
+}
+
+input,
+textarea,
+select {
+  color: #000000;
+  background-color: #ffffff;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #6b7280;
+}

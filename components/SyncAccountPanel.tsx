@@ -11,18 +11,23 @@ export default function SyncAccountPanel() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    const supabase = getSupabaseClient();
-    if (!supabase) return;
-    void supabase.auth.getUser().then(({ data }) => setSignedInAs(data.user?.email ?? null));
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSignedInAs(session?.user.email ?? null);
-    });
-    return () => listener.subscription.unsubscribe();
+    let unsubscribe: (() => void) | undefined;
+    void (async () => {
+      const supabase = await getSupabaseClient();
+      if (!supabase) return;
+      const { data } = await supabase.auth.getUser();
+      setSignedInAs(data.user?.email ?? null);
+      const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+        setSignedInAs(session?.user.email ?? null);
+      });
+      unsubscribe = () => listener.subscription.unsubscribe();
+    })();
+    return () => unsubscribe?.();
   }, []);
 
   async function signIn(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const supabase = getSupabaseClient();
+    const supabase = await getSupabaseClient();
     if (!supabase) {
       setMessage("A szinkron környezeti változói nincsenek beállítva.");
       return;
@@ -40,7 +45,7 @@ export default function SyncAccountPanel() {
   }
 
   async function signOut() {
-    const supabase = getSupabaseClient();
+    const supabase = await getSupabaseClient();
     if (!supabase) return;
     setBusy(true);
     const { error } = await supabase.auth.signOut();
