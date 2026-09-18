@@ -5,6 +5,8 @@ import { createIntake, createRoom, type Intake, type Room } from "@/lib/model";
 import { deleteDraft, readDraft, readIntakes, selectDraft, writeDraft } from "@/lib/offline";
 import { createHomeFlowPayload } from "@/lib/homeflow";
 import { deleteIntakePhotos, deletePhoto, getPhotos, resizeImage, savePhoto } from "@/lib/photos";
+import { syncIntakePhotos } from "@/lib/photo-sync";
+import SyncAccountPanel from "@/components/SyncAccountPanel";
 
 const steps = ["Ingatlan", "Tulajdonos", "Műszaki adatok", "Értékesítés", "Helyiségek + fotók", "Dokumentumok", "Extrák", "Összegzés"];
 const documentItems = [
@@ -56,6 +58,7 @@ export default function IntakeApp() {
   const [screen, setScreen] = useState<"list" | "form">("list");
   const [intakes, setIntakes] = useState<Intake[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [syncState, setSyncState] = useState("Szinkron");
 
   useEffect(() => {
     const items = readIntakes();
@@ -64,6 +67,12 @@ export default function IntakeApp() {
     setForm(current || items[0] || null);
     setLoaded(true);
   }, []);
+
+  useEffect(() => {
+    const retry = () => { if (form && screen === "form") void syncPhotos(true); };
+    window.addEventListener("online", retry);
+    return () => window.removeEventListener("online", retry);
+  }, [form?.id, screen]);
 
   useEffect(() => {
     if (!form || screen !== "form") return;
@@ -251,6 +260,14 @@ export default function IntakeApp() {
   };
   const removePhoto = async (room: Room, id: string) => { await deletePhoto(id); patchRoom(room.id, { photoIds: room.photoIds.filter(photoId => photoId !== id) }); };
   const download = () => { const blob = new Blob([JSON.stringify(createHomeFlowPayload({ ...form, status: "ready" }), null, 2)], { type: "application/json" }); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `ingatlanscan-homeflow-${form.id}.json`; a.click(); URL.revokeObjectURL(a.href); };
+  const syncPhotos = async (silent = false) => {
+    if (!form || !navigator.onLine) { if (!silent) alert("Nincs internetkapcsolat. A fotók helyben biztonságban maradnak, és később újrapróbálhatók."); return; }
+    setSyncState("Szinkron…");
+    const result = await syncIntakePhotos(form);
+    if (result.reason) { setSyncState("Szinkron"); if (!silent) alert(result.reason); return; }
+    setSyncState(result.failed ? `Hiba: ${result.failed}` : "Szinkronizálva");
+    if (!silent) alert(`Képszinkron kész. Feltöltve: ${result.uploaded}, már fent volt: ${result.skipped}, hiba: ${result.failed}.`);
+  };
   const newIntake = () => {
     if (!window.confirm("Új felmérést indítasz? A jelenlegi felmérés mentve marad a Felmérések között.")) return;
     startNewIntake();
@@ -272,6 +289,7 @@ export default function IntakeApp() {
     <main className="content"><section className="card screen-card"><div className="card-head"><div className="eyebrow">{step + 1}. lépés</div><h2>{steps[step]}</h2><p>{step === 4 ? "Add hozzá a helyiségeket, rögzítsd a fő jellemzőket és készíts fotókat közvetlenül telefonról." : step === 5 ? "Jelöld meg, mely dokumentumok és helyszíni tételek állnak már rendelkezésre." : step === 7 ? "Ellenőrizd az adatokat, add meg a fő értékesítési előnyöket, majd készíthetsz PDF-et." : "A mezők automatikusan mentődnek ezen az eszközön."}</p></div>
       {errors.length > 0 && <div className="error-box"><strong>Még szükséges:</strong> {errors.join(" · ")}</div>}
       <div className="fields">
+        {step === 7 ? <SyncAccountPanel /> : null}
         {step === 0 && <>{input("Ingatlan címe", "property", "address", { required: true, placeholder: "Utca, házszám" })}{select("Ingatlan típusa", "property", "type", ["Társasházi lakás","Panel lakás","Családi ház","Ikerház","Sorház","Új építésű ház","Telek","Iroda","Üzlethelyiség","Garázs"], true)}{input("Település", "property", "city", { required: true })}{input("Irányítószám", "property", "postalCode")}{input("Városrész", "property", "district", { placeholder: "pl. Nagyerdő" })}{input("Helyrajzi szám", "property", "hrsz")}{input("Hasznos alapterület", "property", "floorArea", { type: "number", unit: "m²", required: true })}{input("Telekterület", "property", "lotArea", { type: "number", unit: "m²" })}{input("Építés éve", "property", "yearBuilt", { type: "number" })}{input("Szobák", "property", "rooms", { type: "number" })}{input("Félszobák", "property", "halfRooms", { type: "number" })}{input("Emelet", "property", "floor", { placeholder: "pl. 2. / földszint" })}{input("Épület szintjeinek száma", "property", "buildingLevels", { type: "number" })}{select("Tájolás", "property", "orientation", orientations)}{input("Erkély / terasz", "property", "balconyArea", { type: "number", unit: "m²" })}{select("Lift", "property", "elevator", ["Van","Nincs","Nem releváns"])}{select("Parkolás", "property", "parking", ["Utcán ingyenes","Utcán fizetős","Udvari beálló","Garázs","Teremgarázs","Beálló + garázs","Nincs"])}{select("Jelenlegi használat", "property", "occupancy", ["Tulajdonos lakja","Bérlő lakja","Üres","Építés alatt","Egyéb"])}</>}
         {step === 1 && <>{input("Tulajdonos neve", "owner", "name", { required: true })}{input("Telefonszám", "owner", "phone", { type: "tel", required: true })}{input("E-mail", "owner", "email", { type: "email" })}{select("Elsődleges kapcsolattartás", "owner", "contactPreference", ["Telefon","SMS","E-mail","Messenger","WhatsApp"])}<div className="full note">A személyes adatok helyben maradnak, amíg nem exportálod vagy később nem kapcsoljuk be a bejelentkezéshez kötött szinkronizálást.</div></>}
         {step === 2 && <><div className="full quick-hint"><strong>Gyors műszaki felvétel</strong><span>Érintsd meg a megfelelő választ. Csak a ritkább részleteket kell begépelni.</span></div>{quickSelect("Falazat", "walls", technicalOptions.walls)}{quickSelect("Szigetelés", "insulation", technicalOptions.insulation)}{quickSelect("Tető / fedés", "roof", technicalOptions.roof)}{quickSelect("Nyílászárók", "windows", technicalOptions.windows)}{quickSelect("Fűtés", "heating", technicalOptions.heating, true)}{quickSelect("Melegvíz", "hotWater", technicalOptions.hotWater)}{quickSelect("Hűtés / klíma", "cooling", technicalOptions.cooling)}{quickSelect("Energetikai besorolás", "energy", technicalOptions.energy)}{quickSelect("Állapot", "condition", technicalOptions.condition, true)}<div className="field full"><span className="label">Közművek</span><div className="choices compact">{utilityList.map(x => <label className="choice" key={x}><input type="checkbox" checked={form.technical.utilities.includes(x)} onChange={e => toggleArray("utilities", x, e.target.checked)} />{x}</label>)}</div></div><div className="field full"><label>Műszaki pontosítás <span className="optional">· opcionális</span></label><textarea className="technical-note" placeholder="Csak amit a választógombok nem fednek le…" value={form.technical.details} onChange={e => patch("technical", "details", e.target.value)} /></div></>}
@@ -311,6 +329,6 @@ export default function IntakeApp() {
       <div className="print-section"><h3>Dokumentum checklist</h3><div className="print-documents">{documentItems.map(([key, label]) => <span key={key}>{form.documents[key] ? "☑" : "☐"} {label}</span>)}</div>{form.documents.notes && <p className="preline document-print-note">{form.documents.notes}</p>}</div>
       {form.extras.length > 0 && <div className="print-section"><h3>Extrák</h3><p>{form.extras.join(" · ")}</p></div>}{form.strengths.some(Boolean) && <div className="print-section"><h3>Fő értékesítési előnyök</h3><ol>{form.strengths.filter(Boolean).map(x => <li key={x}>{x}</li>)}</ol></div>}{form.notes && <div className="print-section"><h3>Helyszíni összegzés</h3><p className="preline">{form.notes}</p></div>}</section>
     </main>
-    <nav className="actions"><div className="actions-inner">{step === steps.length - 1 && <button className="btn export" onClick={download}>HomeFlow export</button>}<button className="btn secondary" disabled={step === 0} onClick={() => { setErrors([]); setStep(s => s - 1); }}>Vissza</button>{step < steps.length - 1 && <button className="btn primary" onClick={next}>Tovább</button>}<button className="btn pdf" onClick={() => window.print()}>PDF / Nyomtatás</button></div></nav>
+    <nav className="actions"><div className="actions-inner">{step === steps.length - 1 && <><button className="btn export" onClick={() => void syncPhotos(false)}>{syncState}</button><button className="btn export" onClick={download}>HomeFlow export</button></>}<button className="btn secondary" disabled={step === 0} onClick={() => { setErrors([]); setStep(s => s - 1); }}>Vissza</button>{step < steps.length - 1 && <button className="btn primary" onClick={next}>Tovább</button>}<button className="btn pdf" onClick={() => window.print()}>PDF / Nyomtatás</button></div></nav>
   </div>;
 }
