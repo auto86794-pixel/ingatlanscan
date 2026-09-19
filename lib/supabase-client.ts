@@ -29,7 +29,7 @@ export async function getSupabaseClient() {
     if (!url || !key) return null;
 
     browserClient = createClient(url, key, {
-      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
+      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
     });
     return browserClient;
   })();

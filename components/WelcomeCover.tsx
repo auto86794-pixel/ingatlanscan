@@ -1,19 +1,10 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useState } from "react";
-import PasswordRecoveryPanel from "@/components/PasswordRecoveryPanel";
+import { useState } from "react";
 
 export default function WelcomeCover({ children }: { children: React.ReactNode }) {
   const [entered, setEntered] = useState(false);
-  const [recovering, setRecovering] = useState(false);
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.hash.slice(1));
-    setRecovering(params.get("type") === "recovery" && params.has("access_token"));
-  }, []);
-
-  if (recovering) return <PasswordRecoveryPanel onComplete={() => { setRecovering(false); setEntered(true); }} />;
   if (entered) return <>{children}</>;
 
   return (

@@ -16,79 +16,53 @@ export default function PasswordRecovery() {
   const [completed, setCompleted] = useState(false);
 
   useEffect(() => {
-    let mounted = true;
-    let unsubscribe: (() => void) | undefined;
+    let active = true;
 
     void (async () => {
-      // A recovery bizonyítékát még a Supabase kliens létrehozása előtt olvassuk ki,
-      // mert a kliens detectSessionInUrl funkciója közben eltávolíthatja/feldolgozhatja.
-      const initialUrl = new URL(window.location.href);
-      const code = initialUrl.searchParams.get("code");
-      const hash = new URLSearchParams(initialUrl.hash.replace(/^#/, ""));
-      const hashType = hash.get("type");
+      const url = new URL(window.location.href);
+      const code = url.searchParams.get("code");
+      const hash = new URLSearchParams(url.hash.replace(/^#/, ""));
       const accessToken = hash.get("access_token");
       const refreshToken = hash.get("refresh_token");
-      const hasRecoveryEvidence = Boolean(code || hashType === "recovery" || accessToken);
+      const type = hash.get("type");
 
       const supabase = await getSupabaseClient();
-      if (!supabase || !mounted) {
-        if (mounted) setMessage("A jelszó-helyreállítás most nem érhető el.");
+      if (!active) return;
+      if (!supabase) {
+        setMessage("A jelszó-helyreállítás most nem érhető el.");
         return;
       }
 
-      const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
-        if (!mounted) return;
-        if (event === "PASSWORD_RECOVERY" && session?.user) {
-          setReady(true);
-          setMessage("");
-        }
-      });
-      unsubscribe = () => listener.subscription.unsubscribe();
+      let recoverySessionReady = false;
+      let recoveryError = "";
 
-      let sessionReady = false;
-
-      // PKCE recovery link: ?code=... -> valódi session csere.
       if (code) {
         const { data, error } = await supabase.auth.exchangeCodeForSession(code);
-        if (!error && data.session?.user) sessionReady = true;
-        // detectSessionInUrl esetén előfordulhat, hogy a kliens már feldolgozta a code-ot.
-        if (error) {
-          const { data: current } = await supabase.auth.getSession();
-          if (current.session?.user) sessionReady = true;
-        }
-      }
-
-      // Régebbi implicit recovery link: #access_token=...&refresh_token=...&type=recovery
-      if (!sessionReady && hashType === "recovery" && accessToken && refreshToken) {
+        recoverySessionReady = Boolean(!error && data.session?.user);
+        recoveryError = error?.message ?? "";
+      } else if (type === "recovery" && accessToken && refreshToken) {
         const { data, error } = await supabase.auth.setSession({
           access_token: accessToken,
           refresh_token: refreshToken,
         });
-        if (!error && data.session?.user) sessionReady = true;
+        recoverySessionReady = Boolean(!error && data.session?.user);
+        recoveryError = error?.message ?? "";
       }
 
-      // Ha a Supabase kliens automatikusan már feldolgozta a recovery URL-t,
-      // a recovery bizonyíték megléte mellett a létrejött session elfogadható.
-      if (!sessionReady && hasRecoveryEvidence) {
-        const { data } = await supabase.auth.getSession();
-        if (data.session?.user) sessionReady = true;
+      if (!active) return;
+      if (!recoverySessionReady) {
+        setMessage(recoveryError
+          ? `A helyreállító link nem használható: ${recoveryError}`
+          : "A helyreállító link lejárt vagy érvénytelen. Kérj új helyreállító linket a belépési képernyőn.");
+        return;
       }
 
-      if (!mounted) return;
-      if (sessionReady) {
-        cleanRecoveryUrl();
-        setReady(true);
-        setMessage("");
-      } else {
-        setReady(false);
-        setMessage("A helyreállító link lejárt vagy érvénytelen. Kérj új helyreállító linket a belépési képernyőn.");
-      }
+      cleanRecoveryUrl();
+      setReady(true);
+      setMessage("");
     })();
 
-    return () => {
-      mounted = false;
-      unsubscribe?.();
-    };
+    return () => { active = false; };
   }, []);
 
   async function savePassword(event: React.FormEvent<HTMLFormElement>) {
@@ -112,20 +86,28 @@ export default function PasswordRecovery() {
     setBusy(true);
     setMessage("");
 
-    // Mentés előtt még egyszer ellenőrizzük, hogy ténylegesen van-e hitelesített session.
-    const { data: sessionData } = await supabase.auth.getSession();
-    if (!sessionData.session?.user) {
+    const { data: userData, error: userError } = await supabase.auth.getUser();
+    if (userError || !userData.user) {
       setBusy(false);
       setReady(false);
-      setMessage("A helyreállító munkamenet lejárt. Kérj új helyreállító linket, és próbáld újra.");
+      setMessage(`A helyreállító munkamenet nem érvényes${userError?.message ? `: ${userError.message}` : "."}`);
       return;
     }
 
-    const { error } = await supabase.auth.updateUser({ password });
+    const { data, error } = await supabase.auth.updateUser({ password });
+    if (error || !data.user) {
+      setBusy(false);
+      setMessage(`Az új jelszó mentése nem sikerült${error?.message ? `: ${error.message}` : "."}`);
+      return;
+    }
+
+    // A recovery munkamenet ne maradjon normál bejelentkezésként aktív.
+    // Így a következő belépés valóban az új jelszót ellenőrzi.
+    const { error: signOutError } = await supabase.auth.signOut();
     setBusy(false);
 
-    if (error) {
-      setMessage(`Az új jelszó mentése nem sikerült: ${error.message}`);
+    if (signOutError) {
+      setMessage(`Az új jelszó elmentve, de az ideiglenes munkamenet lezárása nem sikerült: ${signOutError.message}`);
       return;
     }
 
@@ -133,7 +115,7 @@ export default function PasswordRecovery() {
     setConfirmPassword("");
     setReady(false);
     setCompleted(true);
-    setMessage("Az új jelszó sikeresen elmentve. Most már beléphetsz vele.");
+    setMessage("Az új jelszó sikeresen elmentve. Jelentkezz be vele az IngatlanScanben.");
   }
 
   return (
