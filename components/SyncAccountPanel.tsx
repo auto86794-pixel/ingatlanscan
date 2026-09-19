@@ -66,7 +66,7 @@ export default function SyncAccountPanel() {
     }
     setBusy(true);
     setMessage("");
-    const redirectTo = `${window.location.origin}/`;
+    const redirectTo = `${window.location.origin}/auth/recovery`;
     const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, { redirectTo });
     setBusy(false);
     setMessage(error
