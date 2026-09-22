@@ -22,14 +22,15 @@ Ezután: `http://localhost:3000`
 - PWA manifest és alkalmazásikon
 - előkészített többirodás Supabase-séma RLS-szabályokkal
 
-## Következő bekötési lépések
+## Jelenlegi HomeFlow-szinkron
 
-1. Másold az `.env.example` fájlt `.env.local` néven, és add meg az új IngatlanScan Supabase-projekt publikus adatait.
-2. A `supabase/schema.sql` csak ellenőrzött migrációként kerüljön az adatbázisba.
-3. Az Auth és közvetlen szinkron bekötése előtt tesztelni kell az összes RLS allow/deny esetet.
-4. A `HOMEFLOW_API_TOKEN` kizárólag szerveroldali környezeti változó lehet.
+Bejelentkezés után a felmérés és a fotók közvetlenül a közös Supabase-projektbe szinkronizálódnak. Az új verzió a felmérés készültségét is továbbítja, és a felhőből a már eltávolított fotók metaadatait frissíti. Az offline piszkozat működése megmarad. Szinkronhiba esetén a helyi adatokat ne töröld; ismételd meg a szinkront.
 
-Git-repositoryt és Vercel-kapcsolatot a csomag szándékosan nem tartalmaz.
+A HomeFlow `20260922130000_ingatlanscan_sync_consistency.sql` migrációját az IngatlanScan új verziójának közzététele előtt kell futtatni. Nincs szükség `HOMEFLOW_API_TOKEN` változóra vagy külön fotó-API-ra. A bejelentkezés és az RLS védi az adatokat.
+
+## Korábbi verziójegyzetek
+
+Az alábbi leírások történeti információk.
 
 ## IngatlanScan 03
 - Értékesítési rész mobilos gyorsválasztókkal

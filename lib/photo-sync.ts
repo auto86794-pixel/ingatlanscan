@@ -1,6 +1,7 @@
 import type { Intake } from "./model";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getIntakePhotos, updatePhotoSync } from "./photos";
+import { calculateIntakeProgress } from "./progress";
 import { getSupabaseClient } from "./supabase-client";
 
 export type SyncResult = {
@@ -9,13 +10,15 @@ export type SyncResult = {
   failed: number;
   reason?: string;
   conflict?: boolean;
+  removed?: number;
+  syncedAt?: string;
 };
 
 const activeSyncs = new Map<string, Promise<SyncResult>>();
 
 function isAlreadyStored(error: { message?: string; statusCode?: string | number }) {
   const status = Number(error.statusCode);
-  return status === 400 || status === 409 || /already exists|duplicate/i.test(error.message ?? "");
+  return status === 409 || /already exists|duplicate/i.test(error.message ?? "");
 }
 
 async function runSync(intake: Intake): Promise<SyncResult> {
@@ -30,7 +33,14 @@ async function runSync(intake: Intake): Promise<SyncResult> {
     return { uploaded: 0, skipped: 0, failed: 0, reason: "A szinkronhoz jelentkezz be a HomeFlow-fiókoddal." };
   }
 
-  const photoCount = intake.rooms.reduce((count, room) => count + room.photoIds.length, 0);
+  const expectedPhotoIds = intake.rooms.flatMap((room) => room.photoIds);
+  const allLocalPhotos = await getIntakePhotos(intake.id);
+  const localById = new Map(allLocalPhotos.map((photo) => [photo.id, photo]));
+  if (expectedPhotoIds.some((id) => !localById.has(id))) {
+    return { uploaded: 0, skipped: 0, failed: 0, reason: "Egy felmérési kép hiányzik erről az eszközről. A felhőbeli képek változatlanok maradtak." };
+  }
+  const photos = expectedPhotoIds.map((id) => localById.get(id)!);
+  const photoCount = expectedPhotoIds.length;
   const { data: survey, error: surveyError } = await syncClient.rpc("sync_property_survey", {
     p_source_local_id: intake.id,
     p_schema_version: intake.schemaVersion,
@@ -45,6 +55,7 @@ async function runSync(intake: Intake): Promise<SyncResult> {
       ? Number(String(intake.sale.expectedPriceM).replace(",", "."))
       : null,
     p_photo_count: photoCount,
+    p_progress: calculateIntakeProgress(intake),
     p_payload: intake,
     p_source_updated_at: intake.updatedAt,
     p_captured_at: intake.createdAt,
@@ -63,13 +74,17 @@ async function runSync(intake: Intake): Promise<SyncResult> {
     };
   }
 
-  const photos = await getIntakePhotos(intake.id);
   let uploaded = 0;
   let skipped = 0;
   let failed = 0;
+  let removed = 0;
+
+  const photoOrder = new Map(
+    intake.rooms.flatMap((room) => room.photoIds).map((photoId, index) => [photoId, index])
+  );
 
   for (const photo of photos) {
-    const path = photo.storagePath || `${user.id}/${survey.id}/${photo.id}.webp`;
+    const path = `${user.id}/${survey.id}/${photo.id}.webp`;
     const wasSynced = photo.syncStatus === "synced" && photo.storagePath === path;
 
     try {
@@ -93,6 +108,8 @@ async function runSync(intake: Intake): Promise<SyncResult> {
         file_name: `${photo.id}.webp`,
         mime_type: "image/webp",
         file_size: photo.blob.size,
+        sort_order: photoOrder.get(photo.id) ?? 0,
+        is_cover: (photoOrder.get(photo.id) ?? -1) === 0,
         sync_status: "synced",
         source_updated_at: intake.updatedAt,
         synced_at: syncedAt,
@@ -116,7 +133,39 @@ async function runSync(intake: Intake): Promise<SyncResult> {
     }
   }
 
-  return { uploaded, skipped, failed };
+  if (failed === 0) {
+    const { data: currentSurvey, error: currentSurveyError } = await syncClient
+      .from("property_surveys")
+      .select("source_updated_at")
+      .eq("id", survey.id)
+      .single();
+    if (currentSurveyError || !currentSurvey ||
+        Date.parse(currentSurvey.source_updated_at) !== Date.parse(intake.updatedAt)) {
+      return { uploaded, skipped, failed: 1, removed, reason: "A felmérés közben másik eszközön módosult. Frissítsd az adatokat az újabb változatból." };
+    }
+    const localPhotoIds = new Set(expectedPhotoIds);
+    const { data: remotePhotos, error: remoteError } = await syncClient
+      .from("property_survey_images")
+      .select("id,source_photo_id")
+      .eq("survey_id", survey.id)
+      .eq("sync_status", "synced");
+
+    if (remoteError) {
+      return { uploaded, skipped, failed: 1, removed, reason: remoteError.message };
+    }
+
+    const stalePhotos = (remotePhotos ?? []).filter((photo) => !localPhotoIds.has(photo.source_photo_id));
+    for (const stalePhoto of stalePhotos) {
+      const { error: removeMetadataError } = await syncClient
+        .from("property_survey_images")
+        .update({ sync_status: "archived", source_updated_at: intake.updatedAt })
+        .eq("id", stalePhoto.id);
+      if (removeMetadataError) failed += 1;
+      else removed += 1;
+    }
+  }
+
+  return { uploaded, skipped, failed, removed, syncedAt: new Date().toISOString() };
 }
 
 export function syncIntakePhotos(intake: Intake): Promise<SyncResult> {
