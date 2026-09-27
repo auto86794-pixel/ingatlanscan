@@ -187,3 +187,8 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:#c4933b;box-sh
 /* Stabil, gyors alkalmazásindítás */
 .app-start-loading{min-height:100dvh;display:grid;place-content:center;justify-items:center;gap:8px;background:#f7f3eb;color:#181713;text-align:center;padding:24px}
 .app-start-loading img{width:64px;height:64px}.app-start-loading strong{font-size:1.25rem}.app-start-loading span{color:#756c60;font-size:.9rem}
+
+/* Fix 10 — mobilbiztos natív belépés: nem függ React click/hydration eseménytől. */
+.welcome-photo-card{aspect-ratio:1088/1445}
+.welcome-photo-art{pointer-events:none}
+.welcome-photo-enter{z-index:20;display:block;pointer-events:auto;touch-action:manipulation}

@@ -1,31 +1,12 @@
 "use client";
 
 import Image from "next/image";
-import dynamic from "next/dynamic";
-import { useEffect, useState } from "react";
-
-const IntakeApp = dynamic(() => import("@/components/IntakeApp"), {
-  ssr: false,
-  loading: () => (
-    <main className="app-start-loading" role="status" aria-live="polite">
-      <img src="/icon.svg" alt="" />
-      <strong>IngatlanScan</strong>
-      <span>Betöltés…</span>
-    </main>
-  ),
-});
+import { useEffect } from "react";
 
 export default function WelcomeCover() {
-  const [entered, setEntered] = useState(false);
-
   useEffect(() => {
-    // A borító már látszik, közben előtöltjük az alkalmazás chunkját.
-    // Így mobilon a Belépés gomb után nem kell a nagy csomagra várni.
-    void import("@/components/IntakeApp");
-
-    // Régi statikus/PWA verziók service workere mobilon még vezérelheti az oldalt.
-    // Az aktuális Next.js alkalmazás nem használ service workert, ezért biztonságosan
-    // eltávolítjuk a legacy regisztrációt és annak cache-ét.
+    // Legacy PWA/service-worker takarítás. A belépés ettől függetlenül natív link,
+    // ezért mobilon a React hidratáció késése sem tudja blokkolni.
     if ("serviceWorker" in navigator) {
       void navigator.serviceWorker.getRegistrations().then((registrations) =>
         Promise.all(registrations.map((registration) => registration.unregister())),
@@ -33,18 +14,10 @@ export default function WelcomeCover() {
     }
     if ("caches" in window) {
       void caches.keys().then((keys) =>
-        Promise.all(
-          keys
-            .filter((key) => key.startsWith("ingatlanscan-"))
-            .map((key) => caches.delete(key)),
-        ),
+        Promise.all(keys.filter((key) => key.startsWith("ingatlanscan-")).map((key) => caches.delete(key))),
       );
     }
   }, []);
-
-  const enterApp = () => setEntered(true);
-
-  if (entered) return <IntakeApp />;
 
   return (
     <main className="welcome-photo-screen" aria-label="IngatlanScan üdvözlő képernyő">
@@ -57,15 +30,13 @@ export default function WelcomeCover() {
           priority
           sizes="(max-width: 760px) 100vw, 760px"
         />
-        <button
+        <a
           className="welcome-photo-enter"
-          type="button"
-          onClick={enterApp}
-          onPointerUp={enterApp}
+          href="/scan"
           aria-label="Belépés az IngatlanScan alkalmazásba"
         >
           <span className="sr-only">Belépés az IngatlanScan alkalmazásba</span>
-        </button>
+        </a>
       </section>
     </main>
   );
