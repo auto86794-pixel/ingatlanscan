@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import dynamic from "next/dynamic";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 const IntakeApp = dynamic(() => import("@/components/IntakeApp"), {
   ssr: false,
@@ -17,6 +17,32 @@ const IntakeApp = dynamic(() => import("@/components/IntakeApp"), {
 
 export default function WelcomeCover() {
   const [entered, setEntered] = useState(false);
+
+  useEffect(() => {
+    // A borító már látszik, közben előtöltjük az alkalmazás chunkját.
+    // Így mobilon a Belépés gomb után nem kell a nagy csomagra várni.
+    void import("@/components/IntakeApp");
+
+    // Régi statikus/PWA verziók service workere mobilon még vezérelheti az oldalt.
+    // Az aktuális Next.js alkalmazás nem használ service workert, ezért biztonságosan
+    // eltávolítjuk a legacy regisztrációt és annak cache-ét.
+    if ("serviceWorker" in navigator) {
+      void navigator.serviceWorker.getRegistrations().then((registrations) =>
+        Promise.all(registrations.map((registration) => registration.unregister())),
+      );
+    }
+    if ("caches" in window) {
+      void caches.keys().then((keys) =>
+        Promise.all(
+          keys
+            .filter((key) => key.startsWith("ingatlanscan-"))
+            .map((key) => caches.delete(key)),
+        ),
+      );
+    }
+  }, []);
+
+  const enterApp = () => setEntered(true);
 
   if (entered) return <IntakeApp />;
 
@@ -34,7 +60,8 @@ export default function WelcomeCover() {
         <button
           className="welcome-photo-enter"
           type="button"
-          onClick={() => setEntered(true)}
+          onClick={enterApp}
+          onPointerUp={enterApp}
           aria-label="Belépés az IngatlanScan alkalmazásba"
         >
           <span className="sr-only">Belépés az IngatlanScan alkalmazásba</span>

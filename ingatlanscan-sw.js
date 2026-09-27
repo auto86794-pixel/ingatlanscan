@@ -1,5 +1,11 @@
-const CACHE='ingatlanscan-v1';
-const APP=['./','./index.html','./ingatlanscan.webmanifest','./ingatlanscan-icon.svg'];
-self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(APP))));
-self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key=>key!==CACHE).map(key=>caches.delete(key))))));
-self.addEventListener('fetch',event=>{if(event.request.method!=='GET')return;event.respondWith(fetch(event.request).then(response=>{const copy=response.clone();caches.open(CACHE).then(cache=>cache.put(event.request,copy));return response}).catch(()=>caches.match(event.request).then(hit=>hit||caches.match('./index.html'))))});
+const LEGACY_CACHE_PREFIX = "ingatlanscan-";
+self.addEventListener("install", () => self.skipWaiting());
+self.addEventListener("activate", (event) => {
+  event.waitUntil((async () => {
+    const keys = await caches.keys();
+    await Promise.all(keys.filter((key) => key.startsWith(LEGACY_CACHE_PREFIX)).map((key) => caches.delete(key)));
+    await self.registration.unregister();
+    const clientsList = await self.clients.matchAll({ type: "window" });
+    for (const client of clientsList) client.navigate(client.url);
+  })());
+});
