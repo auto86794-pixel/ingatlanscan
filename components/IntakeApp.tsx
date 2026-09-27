@@ -62,11 +62,23 @@ export default function IntakeApp() {
   const [syncState, setSyncState] = useState("Szinkron");
 
   useEffect(() => {
-    const items = readIntakes();
-    const current = readDraft();
-    setIntakes(items);
-    setForm(current || items[0] || null);
-    setLoaded(true);
+    let active = true;
+    const loadLocalData = () => {
+      if (!active) return;
+      try {
+        const items = readIntakes();
+        const current = readDraft();
+        if (!active) return;
+        setIntakes(items);
+        setForm(current || items[0] || null);
+      } finally {
+        if (active) setLoaded(true);
+      }
+    };
+
+    // Előbb kirajzoljuk az alkalmazás vázát, csak utána olvassuk a helyi mentéseket.
+    const timer = window.setTimeout(loadLocalData, 0);
+    return () => { active = false; window.clearTimeout(timer); };
   }, []);
 
   useEffect(() => {

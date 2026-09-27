@@ -183,3 +183,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:#c4933b;box-sh
 .recovery-submit{width:100%;margin-top:4px}.recovery-message{margin:18px 0 0;padding:12px 14px;border-radius:12px;background:rgba(214,176,107,.1);color:#ead8b6;line-height:1.45}.recovery-back{display:inline-block;margin-top:22px;color:#d6b06b;text-decoration:none;font-weight:750}.recovery-card>small{display:block;margin-top:16px;color:#8f8c84;line-height:1.4}
 @media(max-width:560px){.recovery-screen{padding:14px}.recovery-card{padding:26px 20px;border-radius:20px}}
 
+
+/* Stabil, gyors alkalmazásindítás */
+.app-start-loading{min-height:100dvh;display:grid;place-content:center;justify-items:center;gap:8px;background:#f7f3eb;color:#181713;text-align:center;padding:24px}
+.app-start-loading img{width:64px;height:64px}.app-start-loading strong{font-size:1.25rem}.app-start-loading span{color:#756c60;font-size:.9rem}
