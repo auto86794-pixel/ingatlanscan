@@ -34,7 +34,10 @@ export async function getSupabaseClient() {
     return browserClient;
   })();
 
-  const result = await browserClientPromise;
-  browserClientPromise = null;
-  return result;
+  try {
+    return await browserClientPromise;
+  } finally {
+    // Sikertelen hálózati vagy konfigurációs kérés után is lehessen újrapróbálni.
+    browserClientPromise = null;
+  }
 }

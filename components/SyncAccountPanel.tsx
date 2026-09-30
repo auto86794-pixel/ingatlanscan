@@ -3,6 +3,22 @@
 import { useEffect, useState } from "react";
 import { getSupabaseClient } from "@/lib/supabase-client";
 
+function authErrorMessage(error: unknown, fallback: string) {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+
+  if (/invalid login credentials/i.test(message)) {
+    return "Hibás e-mail-cím vagy jelszó.";
+  }
+  if (/email not confirmed/i.test(message)) {
+    return "Az e-mail-cím még nincs megerősítve.";
+  }
+  if (/failed to fetch|network|timeout/i.test(message)) {
+    return "A bejelentkezési szolgáltatás most nem érhető el. Ellenőrizd az internetkapcsolatot, majd próbáld újra.";
+  }
+
+  return fallback;
+}
+
 export default function SyncAccountPanel() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -13,37 +29,48 @@ export default function SyncAccountPanel() {
   useEffect(() => {
     let unsubscribe: (() => void) | undefined;
     void (async () => {
-      const supabase = await getSupabaseClient();
-      if (!supabase) return;
+      try {
+        const supabase = await getSupabaseClient();
+        if (!supabase) return;
 
-      const { data } = await supabase.auth.getUser();
-      setSignedInAs(data.user?.email ?? null);
+        const { data } = await supabase.auth.getUser();
+        setSignedInAs(data.user?.email ?? null);
 
-      const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-        setSignedInAs(session?.user.email ?? null);
-      });
-      unsubscribe = () => listener.subscription.unsubscribe();
+        const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+          setSignedInAs(session?.user.email ?? null);
+        });
+        unsubscribe = () => listener.subscription.unsubscribe();
+      } catch (error) {
+        console.error("[sync-auth] A munkamenet ellenőrzése nem sikerült.", error);
+        setMessage("A bejelentkezési szolgáltatás most nem érhető el. Próbáld újra később.");
+      }
     })();
     return () => unsubscribe?.();
   }, []);
 
   async function signIn(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const supabase = await getSupabaseClient();
-    if (!supabase) {
-      setMessage("A szinkron környezeti változói nincsenek beállítva.");
-      return;
-    }
     setBusy(true);
     setMessage("");
-    const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-    setBusy(false);
-    if (error) {
-      setMessage(`A bejelentkezés nem sikerült: ${error.message}`);
-      return;
+    try {
+      const supabase = await getSupabaseClient();
+      if (!supabase) {
+        setMessage("A bejelentkezési szolgáltatás nincs megfelelően beállítva.");
+        return;
+      }
+      const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+      if (error) {
+        setMessage(authErrorMessage(error, "A bejelentkezés nem sikerült. Ellenőrizd az adatokat, majd próbáld újra."));
+        return;
+      }
+      setPassword("");
+      setMessage("Sikeres bejelentkezés. A felmérés szinkronizálható.");
+    } catch (error) {
+      console.error("[sync-auth] A bejelentkezés nem sikerült.", error);
+      setMessage(authErrorMessage(error, "Váratlan háttérhiba történt a bejelentkezéskor. Próbáld újra."));
+    } finally {
+      setBusy(false);
     }
-    setPassword("");
-    setMessage("Sikeres bejelentkezés. A felmérés szinkronizálható.");
   }
 
   async function requestPasswordReset() {
@@ -52,28 +79,44 @@ export default function SyncAccountPanel() {
       setMessage("Előbb add meg az IngatlanScan e-mail-címedet.");
       return;
     }
-    const supabase = await getSupabaseClient();
-    if (!supabase) {
-      setMessage("A szinkron környezeti változói nincsenek beállítva.");
-      return;
-    }
     setBusy(true);
     setMessage("");
-    const redirectTo = `${window.location.origin}/auth/recovery`;
-    const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, { redirectTo });
-    setBusy(false);
-    setMessage(error
-      ? `A jelszó-helyreállító e-mail küldése nem sikerült: ${error.message}`
-      : "Elküldtük a jelszó-helyreállító e-mailt. Nyisd meg a benne lévő linket ezen az eszközön.");
+    try {
+      const supabase = await getSupabaseClient();
+      if (!supabase) {
+        setMessage("A bejelentkezési szolgáltatás nincs megfelelően beállítva.");
+        return;
+      }
+      const redirectTo = `${window.location.origin}/auth/recovery`;
+      const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, { redirectTo });
+      setMessage(error
+        ? authErrorMessage(error, "A jelszó-helyreállító e-mail küldése nem sikerült. Próbáld újra.")
+        : "Elküldtük a jelszó-helyreállító e-mailt. Nyisd meg a benne lévő linket ezen az eszközön.");
+    } catch (error) {
+      console.error("[sync-auth] A jelszó-helyreállítás nem sikerült.", error);
+      setMessage(authErrorMessage(error, "Váratlan háttérhiba történt. Próbáld újra."));
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function signOut() {
-    const supabase = await getSupabaseClient();
-    if (!supabase) return;
     setBusy(true);
-    const { error } = await supabase.auth.signOut();
-    setBusy(false);
-    setMessage(error ? "A kijelentkezés nem sikerült." : "Kijelentkeztél.");
+    setMessage("");
+    try {
+      const supabase = await getSupabaseClient();
+      if (!supabase) {
+        setMessage("A bejelentkezési szolgáltatás nincs megfelelően beállítva.");
+        return;
+      }
+      const { error } = await supabase.auth.signOut();
+      setMessage(error ? "A kijelentkezés nem sikerült." : "Kijelentkeztél.");
+    } catch (error) {
+      console.error("[sync-auth] A kijelentkezés nem sikerült.", error);
+      setMessage(authErrorMessage(error, "Váratlan háttérhiba történt a kijelentkezéskor."));
+    } finally {
+      setBusy(false);
+    }
   }
 
   if (signedInAs) {
