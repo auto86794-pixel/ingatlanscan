@@ -24,7 +24,7 @@ Ezután: `http://localhost:3000`
 
 ## Jelenlegi HomeFlow-szinkron
 
-Bejelentkezés után a felmérés és a fotók közvetlenül a közös Supabase-projektbe szinkronizálódnak. Az új verzió a felmérés készültségét is továbbítja, és a felhőből a már eltávolított fotók metaadatait frissíti. Az offline piszkozat működése megmarad. Szinkronhiba esetén a helyi adatokat ne töröld; ismételd meg a szinkront.
+Bejelentkezés után a felmérés és a fotók közvetlenül a közös Supabase-projektbe szinkronizálódnak, és megjelennek a HomeFlow **Felmérések** részében. A szinkron önmagában még nem hoz létre CRM-ingatlant: az adatokat előbb ellenőrizni kell, majd a HomeFlowban az **Ingatlan létrehozása** művelettel lehet átvenni. Az új verzió a felmérés készültségét is továbbítja, és a felhőből a már eltávolított fotók metaadatait frissíti. Az offline piszkozat működése megmarad. Szinkronhiba esetén a helyi adatokat ne töröld; ismételd meg a szinkront.
 
 A HomeFlow `20260922130000_ingatlanscan_sync_consistency.sql` migrációját az IngatlanScan új verziójának közzététele előtt kell futtatni. Nincs szükség `HOMEFLOW_API_TOKEN` változóra vagy külön fotó-API-ra. A bejelentkezés és az RLS védi az adatokat.
 
