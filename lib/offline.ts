@@ -53,7 +53,9 @@ export function readDraft(): Intake | null {
 }
 
 export function writeDraft(value: Intake) {
-  const next = { ...value, updatedAt: new Date().toISOString() };
+  // Az updatedAt a tényleges adatváltozás időpontja. Egy sima automatikus
+  // mentés vagy szinkronállapot-változás nem teheti újabbá a felmérést.
+  const next = { ...value };
   safeSet(CURRENT_KEY, JSON.stringify(next));
 
   const items = readIntakes();

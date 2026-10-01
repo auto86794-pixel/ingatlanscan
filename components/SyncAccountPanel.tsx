@@ -27,25 +27,42 @@ export default function SyncAccountPanel() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
+    let active = true;
     let unsubscribe: (() => void) | undefined;
     void (async () => {
       try {
         const supabase = await getSupabaseClient();
         if (!supabase) return;
 
-        const { data } = await supabase.auth.getUser();
-        setSignedInAs(data.user?.email ?? null);
-
         const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-          setSignedInAs(session?.user.email ?? null);
+          if (active) setSignedInAs(session?.user.email ?? null);
         });
         unsubscribe = () => listener.subscription.unsubscribe();
+
+        if (!active) {
+          unsubscribe();
+          return;
+        }
+
+        const { data, error } = await supabase.auth.getSession();
+        if (error) throw error;
+        if (active) setSignedInAs(data.session?.user.email ?? null);
+
+        if (data.session) {
+          const { data: verified, error: verifyError } = await supabase.auth.getUser();
+          if (!verifyError && verified.user && active) {
+            setSignedInAs(verified.user.email ?? null);
+          }
+        }
       } catch (error) {
         console.error("[sync-auth] A munkamenet ellenőrzése nem sikerült.", error);
-        setMessage("A bejelentkezési szolgáltatás most nem érhető el. Próbáld újra később.");
+        if (active) setMessage("A bejelentkezési szolgáltatás most nem érhető el. Próbáld újra később.");
       }
     })();
-    return () => unsubscribe?.();
+    return () => {
+      active = false;
+      unsubscribe?.();
+    };
   }, []);
 
   async function signIn(event: React.FormEvent<HTMLFormElement>) {

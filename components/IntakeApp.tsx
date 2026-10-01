@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createIntake, createRoom, type Intake, type Room } from "@/lib/model";
 import { deleteDraft, readDraft, readIntakes, selectDraft, writeDraft } from "@/lib/offline";
 import { createHomeFlowPayload } from "@/lib/homeflow";
@@ -48,6 +48,13 @@ const saleOptions = {
 
 type Section = "property" | "owner" | "technical" | "sale";
 
+function syncLabel(status: Intake["status"]) {
+  if (status === "synced") return "HomeFlow felmérésekben naprakész";
+  if (status === "draft") return "Szinkron szükséges";
+  if (status === "error") return "Szinkronhiba";
+  return "Szinkron a HomeFlow-ba";
+}
+
 export default function IntakeApp() {
   const [step, setStep] = useState(0);
   const [form, setForm] = useState<Intake | null>(null);
@@ -60,6 +67,15 @@ export default function IntakeApp() {
   const [intakes, setIntakes] = useState<Intake[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [syncState, setSyncState] = useState("Szinkron a HomeFlow-ba");
+  const formRef = useRef<Intake | null>(null);
+
+  useEffect(() => {
+    formRef.current = form;
+  }, [form]);
+
+  useEffect(() => {
+    if (form) setSyncState(syncLabel(form.status));
+  }, [form?.id, form?.status]);
 
   useEffect(() => {
     let active = true;
@@ -82,10 +98,13 @@ export default function IntakeApp() {
   }, []);
 
   useEffect(() => {
-    const retry = () => { if (form && screen === "form") void syncPhotos(true); };
+    const retry = () => {
+      const current = formRef.current;
+      if (current && screen === "form") void syncPhotos(true, current);
+    };
     window.addEventListener("online", retry);
     return () => window.removeEventListener("online", retry);
-  }, [form?.id, screen]);
+  }, [screen]);
 
   useEffect(() => {
     if (!form || screen !== "form") return;
@@ -272,23 +291,32 @@ export default function IntakeApp() {
   };
   const removePhoto = async (room: Room, id: string) => { await deletePhoto(id); patchRoom(room.id, { photoIds: room.photoIds.filter(photoId => photoId !== id) }); };
   const download = () => { const blob = new Blob([JSON.stringify(createHomeFlowPayload({ ...form, status: "ready" }), null, 2)], { type: "application/json" }); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `ingatlanscan-homeflow-${form.id}.json`; a.click(); URL.revokeObjectURL(a.href); };
-  const syncPhotos = async (silent = false) => {
-    if (!form || !navigator.onLine) { if (!silent) alert("Nincs internetkapcsolat. A fotók helyben biztonságban maradnak, és később újrapróbálhatók."); return; }
+  const syncPhotos = async (silent = false, intake = form) => {
+    if (!intake || !navigator.onLine) { if (!silent) alert("Nincs internetkapcsolat. A fotók helyben biztonságban maradnak, és később újrapróbálhatók."); return; }
     setSyncState("Szinkron…");
-    const sourceUpdatedAt = form.updatedAt;
+    const sourceUpdatedAt = intake.updatedAt;
+    const restoreSyncLabel = () => setSyncState(syncLabel(intake.status));
     let result;
     try {
-      result = await syncIntakePhotos(form);
+      result = await syncIntakePhotos(intake);
     } catch (error) {
+      if (silent) {
+        restoreSyncLabel();
+        return;
+      }
       setSyncState("Szinkronhiba");
       setForm((current) => current ? { ...current, status: "error" } : current);
-      if (!silent) alert(error instanceof Error ? error.message : "A szinkron nem sikerült. Próbáld újra.");
+      alert(error instanceof Error ? error.message : "A szinkron nem sikerült. Próbáld újra.");
       return;
     }
     if (result.reason) {
+      if (silent) {
+        restoreSyncLabel();
+        return;
+      }
       setSyncState("Szinkronhiba");
       setForm((current) => current && current.updatedAt === sourceUpdatedAt ? { ...current, status: "error" } : current);
-      if (!silent) alert(result.reason);
+      alert(result.reason);
       return;
     }
     setSyncState(result.failed ? `Hiba: ${result.failed}` : "HomeFlow felmérésekben naprakész");
