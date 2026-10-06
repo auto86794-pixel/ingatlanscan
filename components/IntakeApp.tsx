@@ -5,6 +5,7 @@ import { createIntake, createRoom, type Intake, type Room } from "@/lib/model";
 import { deleteDraft, readDraft, readIntakes, selectDraft, writeDraft } from "@/lib/offline";
 import { createHomeFlowPayload } from "@/lib/homeflow";
 import { deleteIntakePhotos, deletePhoto, getPhotos, resizeImage, savePhoto } from "@/lib/photos";
+import { savePhotoBatch } from "@/lib/image-optimization";
 import { syncIntakePhotos } from "@/lib/photo-sync";
 import SyncAccountPanel from "@/components/SyncAccountPanel";
 import { calculateIntakeProgress } from "@/lib/progress";
@@ -280,13 +281,21 @@ export default function IntakeApp() {
     if (!remaining) { alert("Egy helyiséghez legfeljebb 8 fotó menthető."); return; }
     setPhotoBusyRoom(room.id);
     try {
-      const ids: string[] = [];
-      for (const file of Array.from(files).slice(0, remaining)) {
-        const id = crypto.randomUUID(); const blob = await resizeImage(file);
-        await savePhoto({ id, intakeId: form.id, roomId: room.id, blob, createdAt: new Date().toISOString() }); ids.push(id);
+      const result = await savePhotoBatch(Array.from(files).slice(0, remaining), async (file) => {
+        const id = crypto.randomUUID();
+        const blob = await resizeImage(file);
+        await savePhoto({ id, intakeId: form.id, roomId: room.id, blob, createdAt: new Date().toISOString() });
+        return id;
+      });
+      if (result.ids.length) {
+        setSyncState("Szinkron szükséges");
+        setForm(current => current && current.id === form.id ? {
+          ...current, status: "draft", updatedAt: new Date().toISOString(),
+          rooms: current.rooms.map(item => item.id === room.id ? { ...item, photoIds: [...item.photoIds, ...result.ids] } : item),
+        } : current);
       }
-      patchRoom(room.id, { photoIds: [...room.photoIds, ...ids] });
-    } catch { alert("Egy vagy több fotót nem sikerült elmenteni."); }
+      if (result.errors.length) alert(`${result.ids.length} fotó mentve, ${result.errors.length} nem sikerült. ${result.errors[0]} A sikeresen mentett képek megmaradtak.`);
+    } catch { alert("A fotómentés nem sikerült. A korábbi képek megmaradtak."); }
     finally { setPhotoBusyRoom(null); }
   };
   const removePhoto = async (room: Room, id: string) => { await deletePhoto(id); patchRoom(room.id, { photoIds: room.photoIds.filter(photoId => photoId !== id) }); };

@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getIntakePhotos, updatePhotoSync } from "./photos";
 import { calculateIntakeProgress } from "./progress";
 import { getSupabaseClient } from "./supabase-client";
+import { photoFormat } from "./image-optimization";
 
 export type SyncResult = {
   uploaded: number;
@@ -84,16 +85,16 @@ async function runSync(intake: Intake): Promise<SyncResult> {
   );
 
   for (const photo of photos) {
-    const path = `${user.id}/${survey.id}/${photo.id}.webp`;
-    const wasSynced = photo.syncStatus === "synced" && photo.storagePath === path;
-
     try {
+      const format = photoFormat(photo.blob);
+      const path = `${user.id}/${survey.id}/${photo.id}.${format.extension}`;
+      const wasSynced = photo.syncStatus === "synced" && photo.storagePath === path;
       await updatePhotoSync(photo.id, { syncStatus: "uploading", syncError: null });
 
       if (!wasSynced) {
         const { error: uploadError } = await syncClient.storage
           .from("property-survey-images")
-          .upload(path, photo.blob, { contentType: "image/webp", upsert: false });
+          .upload(path, photo.blob, { contentType: format.mimeType, upsert: false });
         if (uploadError && !isAlreadyStored(uploadError)) throw uploadError;
       }
 
@@ -105,8 +106,8 @@ async function runSync(intake: Intake): Promise<SyncResult> {
         room_local_id: photo.roomId,
         storage_bucket: "property-survey-images",
         storage_path: path,
-        file_name: `${photo.id}.webp`,
-        mime_type: "image/webp",
+        file_name: `${photo.id}.${format.extension}`,
+        mime_type: format.mimeType,
         file_size: photo.blob.size,
         sort_order: photoOrder.get(photo.id) ?? 0,
         is_cover: (photoOrder.get(photo.id) ?? -1) === 0,
